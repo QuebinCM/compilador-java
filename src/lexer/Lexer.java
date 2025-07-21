@@ -46,6 +46,9 @@ public class Lexer {
         KEYWORDS.put("private", TokenType.PRIVATE);
         KEYWORDS.put("new", TokenType.NEW);
         KEYWORDS.put("this", TokenType.THIS);
+        KEYWORDS.put("package", TokenType.PACKAGE);
+        KEYWORDS.put("import", TokenType.IMPORT);
+        KEYWORDS.put("static", TokenType.STATIC);
     }
     
     /**
@@ -70,16 +73,13 @@ public class Lexer {
      */
     public List<Token> tokenize() throws LexerException {
         List<Token> tokens = new ArrayList<>();
-        
+
         while (!isAtEnd()) {
             Token token = nextToken();
             if (token != null) {
                 tokens.add(token);
             }
         }
-        
-        // Agregar token EOF al final
-        //tokens.add(new Token(TokenType.EOF, "EOF", line, column));
         return tokens;
     }
     
@@ -127,9 +127,14 @@ public class Lexer {
                     return new Token(TokenType.MULTIPLY_ASSIGN, "*=", tokenLine, tokenColumn);
                 }
             case '/':
+                // Primero verificar si es un comentario
+                if (peek() == '/' || peek() == '*') {
+                    return nextToken(); // Llamada recursiva para obtener el siguiente token real
+                }
                 if (match('=')) {
                     return new Token(TokenType.DIVIDE_ASSIGN, "/=", tokenLine, tokenColumn);
                 }
+                return new Token(TokenType.DIVIDE, "/", tokenLine, tokenColumn);
             case '%':
                 if (match('=')) {
                     return new Token(TokenType.MODULO_ASSIGN, "%=", tokenLine, tokenColumn);
@@ -270,6 +275,53 @@ public class Lexer {
     }
     
     /**
+     * Maneja comentarios de una línea (//) y de múltiples líneas.
+     */
+    private boolean skipComment() throws LexerException {
+        if (peek() == '/' && peekNext() == '/') {
+            // Comentario de una línea
+            advance(); // consumir primer /
+            advance(); // consumir segundo /
+
+            while (!isAtEnd() && peek() != '\n') {
+                advance();
+            }
+            return true;
+
+        } else if (peek() == '/' && peekNext() == '*') {
+            // Comentario de múltiples líneas
+            advance(); // consumir /
+            advance(); // consumir *
+
+            while (!isAtEnd()) {
+                if (peek() == '*' && peekNext() == '/') {
+                    advance(); // consumir *
+                    advance(); // consumir /
+                    return true;
+                }
+                if (peek() == '\n') {
+                    newLine();
+                }
+                advance();
+            }
+
+            throw new LexerException("Comentario de múltiples líneas no cerrado", line, column);
+        }
+
+        return false;
+    }
+    
+    /**
+     * Mira el siguiente carácter sin avanzar (peek() + 1)
+     */
+    private char peekNext() {
+        if (current + 1 >= length) {
+            return '\0';
+        }
+        return source.charAt(current + 1);
+    }
+    
+    /**
      * Procesa un número.
      */
     private Token number(int tokenLine, int tokenColumn) {
@@ -321,13 +373,15 @@ public class Lexer {
     }
     
     /**
-     * Omite espacios en blanco y tabulaciones.
+     * Omite espacios en blanco, tabulaciones y comentarios.
      */
-    private void skipWhitespace() {
+    private void skipWhitespace() throws LexerException {
         while (!isAtEnd()) {
             char c = peek();
             if (c == ' ' || c == '\t' || c == '\r') {
                 advance();
+            } else if (c == '/' && (peekNext() == '/' || peekNext() == '*')) {
+                skipComment();
             } else {
                 break;
             }
